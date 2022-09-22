@@ -1,0 +1,223 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Description: VPC Creation demo 1
+
+Parameters:
+  MyEnvironmentInstance:
+    Type: String
+    Default: dev
+    AllowedValues:
+    - dev
+    - qa
+    - prod
+ 
+
+Mappings:
+  EnviMapping:
+    dev:
+      InstanceTypeis: t2.micro
+    qa:
+      InstanceTypeis: t2.micro
+    prod:
+      InstanceTypeis: t2.medium
+    
+Resources:
+
+  myVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.234.152.0/23
+
+  PUBLICSUBNET1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref myVPC
+      CidrBlock: 10.234.152.0/27
+      AvailabilityZone: us-east-1a
+
+  PUBLICSUBNET2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref myVPC
+      CidrBlock: 10.234.152.128/27
+      AvailabilityZone: us-east-1b
+
+  PRIVATESUBNET1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref myVPC
+      CidrBlock: 10.234.153.0/27
+      AvailabilityZone: us-east-1a
+
+  PRIVATESUBNET2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref myVPC
+      CidrBlock: 10.234.153.128/27
+      AvailabilityZone: us-east-1b
+
+  myPublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref myVPC
+      Tags:
+      - Key: Owner
+        Value: afreen.khan@intuitive.cloud
+
+  myPrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref myVPC
+      Tags:
+      - Key: Owner
+        Value: afreen.khan@intuitive.cloud
+
+
+  myPublicSubnetRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !GetAtt PUBLICSUBNET1.SubnetId
+      RouteTableId:
+        !Ref myPublicRouteTable
+   
+  myPrivateSubnetRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !GetAtt PRIVATESUBNET1.SubnetId
+      RouteTableId:
+        !Ref myPrivateRouteTable
+
+  myPublicSubnetRouteTableAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !GetAtt PUBLICSUBNET2.SubnetId
+      RouteTableId:
+        !Ref myPublicRouteTable
+   
+  myPrivateSubnetRouteTableAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !GetAtt PRIVATESUBNET2.SubnetId
+      RouteTableId:
+        !Ref myPrivateRouteTable
+
+  myInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+      - Key: Owner
+        Value: afreen.khan@intuitive.cloud
+
+  myRoute1:
+    Type: AWS::EC2::Route
+    DependsOn: [myInternetGateway]
+    Properties:
+      RouteTableId: !Ref myPublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref myInternetGateway
+        
+  myVpcGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties: 
+      InternetGatewayId: !Ref myInternetGateway
+      VpcId: !Ref myVPC
+
+  # myInternetGatewayRouteTableAssociation1: 
+  #   Type: AWS::EC2::GatewayRouteTableAssociation
+  #   Properties: 
+  #     GatewayId: !Ref myInternetGateway
+  #     RouteTableId: !Ref myPublicRouteTable
+
+  myNatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties: 
+      ConnectivityType: private
+      SubnetId: !Ref PUBLICSUBNET2
+      Tags:
+        - Key: Owner
+          Value: afreen.khan@intuitive.cloud
+       
+  myNatGatewayRouteTableAssociation1:
+   DependsOn: [myNatGateway]
+   Type: AWS::EC2::Route
+   Properties:
+      RouteTableId: !Ref myPrivateRouteTable 
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref myNatGateway
+  
+  mySecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties: 
+      GroupDescription: I will use it later.
+      GroupName: Assignmentsg
+      SecurityGroupEgress: 
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      SecurityGroupIngress: 
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+      Tags: 
+        - Key: Owner
+          Value: afreen.khan@intuitive.cloud
+      VpcId: !Ref myVPC
+
+  myConfigurations:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties: 
+      ImageId: ami-05fa00d4c63e32376
+      InstanceType: !FindInMap
+        - EnviMapping
+        - !Ref MyEnvironmentInstance
+        - InstanceTypeis
+      KeyName: trialkey
+      LaunchConfigurationName: MyAssignmentLC
+      SecurityGroups: 
+        - !Ref mySecurityGroup
+
+  myTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties: 
+      HealthCheckPort: traffic-port
+      HealthCheckProtocol: HTTP
+      Name: mytg
+      Port: 80
+      Protocol: HTTP
+      ProtocolVersion: HTTP1
+      VpcId: !Ref myVPC      
+
+  myLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties: 
+      Scheme: internet-facing  
+      Subnets: 
+        - !Ref PUBLICSUBNET1
+        - !Ref PUBLICSUBNET2 
+      Tags:
+        - Key: Owner
+          Value: afreen.khan@intuitive.cloud
+
+
+  myAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    DependsOn: [myLoadBalancer]
+    Properties: 
+      AutoScalingGroupName: myAutoScalingGroupAsg
+      MaxSize: 2
+      MinSize: 1
+      TargetGroupARNs: !GetAtt myTargetGroup.LoadBalancerArns
+      AvailabilityZones:
+        - us-east-1a
+        - us-east-1b
+      VPCZoneIdentifier: 
+        - !Ref PRIVATESUBNET1
+        - !Ref PRIVATESUBNET2
+
+      LaunchConfigurationName: !Ref myConfigurations
+      # Tags:
+      #   - Key: Owner
+      #     PropagateAtLaunch: true
+      #     Value: afreen.khan@intuitive.cloud
+
+ 
